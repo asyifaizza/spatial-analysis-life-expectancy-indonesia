@@ -1,0 +1,400 @@
+---
+title: "SpatialStatitics_GroupAssignments"
+author: "Asyifa, Aufa"
+date: "2026-06-10"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Insert Library
+```{r}
+library(readxl)
+library(spdep)
+set.seed(123)
+```
+
+# Read Data
+```{r}
+data <- read_excel("data_spatial.xlsx")
+head(data)
+```
+Y = Umur Harapan Hidup Saat Lahir
+
+X1 = Pengeluaran per Kapita (Ribu Rupiah/Orang/Tahun)
+
+X2 = Jumlah Penduduk (Ribu)
+
+```{r}
+library(ggplot2)
+library(maps)
+library(ggrepel)
+
+world <- map_data("world")
+
+ggplot() +
+  geom_polygon(
+    data = subset(world, region == "Indonesia"),
+    aes(
+      x = long,
+      y = lat,
+      group = group
+    ),
+    fill = "grey95",
+    color = "grey60"
+  ) +
+  geom_point(
+    data = data,
+    aes(
+      x = longitude,
+      y = latitude,
+      color = Y,
+      size = Y
+    ),
+    alpha = 0.8
+  ) +
+  scale_color_gradient(
+    low = "skyblue",
+    high = "darkred"
+  ) +
+  labs(
+    title = "Sebaran Umur Harapan Hidup Indonesia",
+    color = "UHH",
+    size = "UHH"
+  ) +
+  geom_text_repel(
+    data = data,
+    aes(
+      longitude,
+      latitude,
+      label = Provinsi
+    ),
+    size = 3
+  ) +
+  theme_minimal()
+```
+
+Berdasarkan peta sebaran UHH, terlihat bahwa provinsi-provinsi di Pulau Jawa cenderung memiliki nilai UHH yang lebih tinggi dibandingkan wilayah Indonesia bagian timur. Hal ini ditunjukkan oleh warna yang lebih gelap pada DKI Jakarta, Jawa Barat, DI Yogyakarta, Jawa Tengah, dan Jawa Timur.
+
+Sebaliknya, beberapa provinsi di wilayah Papua menunjukkan nilai UHH yang relatif lebih rendah yang ditunjukkan oleh warna yang lebih terang. Perbedaan pola ini mengindikasikan adanya ketimpangan kondisi kesehatan dan kesejahteraan antarwilayah di Indonesia.
+
+Secara visual juga terlihat bahwa provinsi-provinsi dengan nilai UHH tinggi cenderung berdekatan satu sama lain, begitu pula dengan provinsi yang memiliki nilai UHH rendah.
+
+
+# Koordinat
+```{r}
+coords <- cbind(
+  data$longitude,
+  data$latitude
+)
+coords <- jitter(coords)
+```
+
+# K-Nearest Neighbor
+
+```{r}
+knn <- knearneigh(coords, k = 4)
+```
+
+
+# Neighbor list
+
+```{r}
+nb <- knn2nb(knn)
+nb
+```
+
+# Membentuk Spatial Weight Matrix
+```{r}
+listw <- nb2listw(nb, style="W")
+```
+
+## Global Moran's I pada Y
+
+H0 : tidak ada dependency spatial pada variable respon
+H1 : Ada dependecy spatial yang positif pada variable respon
+
+```{r}
+global_moran <- moran.test(
+  data$Y,
+  listw
+)
+global_moran
+```
+p-value = 1.981e-09 < 0.05, tolak H0. Maka ada efek dependency spatial.
+
+Artinya, provinsi yang memiliki nilai UHH tinggi cenderung berdekatan dengan provinsi lain yang juga memiliki nilai UHH tinggi. Sebaliknya, provinsi dengan UHH rendah cenderung berdekatan dengan provinsi yang memiliki UHH rendah. Dengan kata lain, terdapat pola pengelompokan (clustering) secara spasial pada data UHH di Indonesia.
+
+
+# Local Moran's I (LISA) pada Y
+
+H0 : tidak ada dependency spatial pada variable respon
+H1 : Ada dependecy spatial yang positif pada variable respon
+
+```{r}
+local_moran <- localmoran(
+  data$Y,
+  listw
+)
+local_moran
+```
+
+Berdasarkan hasil uji Local Moran's I, provinsi yang memiliki p-value < 0.05 menunjukkan adanya autokorelasi spasial lokal yang signifikan. Artinya, nilai Umur Harapan Hidup (UHH) pada provinsi tersebut memiliki keterkaitan yang signifikan dengan nilai UHH pada wilayah-wilayah di sekitarnya.
+
+Hasil menunjukkan bahwa DKI Jakarta (p-value = 0.0444), Jawa Barat (p-value = 0.0061), Jawa Tengah (p-value = 0.0037), DI Yogyakarta (p-value = 0.0042), dan Jawa Timur (p-value = 0.0016) memiliki autokorelasi spasial lokal yang signifikan. Selain itu, Maluku (p-value = 0.0217), Papua Barat (p-value = 0.0155), Papua Barat Daya (p-value = 0.0153), Papua (p-value = 0.0007), Papua Selatan (p-value = 0.0021), Papua Tengah (p-value = 0.0017), dan Papua Pegunungan (p-value = 0.0041) juga menunjukkan autokorelasi spasial lokal yang signifikan.
+
+Sebaliknya, provinsi-provinsi lain memiliki p-value > 0.05, sehingga tidak terdapat bukti yang cukup untuk menyatakan adanya autokorelasi spasial lokal yang signifikan pada wilayah tersebut.
+
+Secara keseluruhan, hasil ini menunjukkan bahwa hanya beberapa wilayah tertentu yang membentuk pola pengelompokan spasial yang signifikan, terutama di Pulau Jawa serta kawasan Maluku dan Papua.
+
+
+```{r}
+# Jadikan dataframe
+hasil_lisa <- data.frame(
+  Provinsi = data$Provinsi,
+  P_Value = local_moran[,5],
+  Cluster = attr(local_moran, "quadr")[,3]
+)
+
+# Ambil yang signifikan saja
+dependensi_spasial <- subset(hasil_lisa, P_Value < 0.05)
+
+dependensi_spasial
+```
+
+Hasil LISA menunjukkan bahwa terdapat beberapa provinsi yang memiliki dependensi spasial signifikan.
+
+Kelompok High-High terdiri dari DKI Jakarta, Jawa Barat, Jawa Tengah, DI Yogyakarta, dan Jawa Timur. Provinsi-provinsi tersebut memiliki nilai UHH yang tinggi dan dikelilingi oleh provinsi lain yang juga memiliki nilai UHH tinggi.
+
+Sementara itu, kelompok Low-Low terdiri dari Maluku, Papua Barat, Papua Barat Daya, Papua, Papua Selatan, Papua Tengah, dan Papua Pegunungan. Provinsi-provinsi tersebut memiliki nilai UHH yang relatif rendah dan berada di sekitar wilayah yang juga memiliki nilai UHH rendah.
+
+Temuan ini menunjukkan adanya pengelompokan wilayah dengan karakteristik UHH yang mirip secara geografis.
+
+Untuk lebih jelasnya, bisa dilihat pada visualisasi dibawah ini.
+
+```{r}
+hasil_lisa$LISA <- "Not Significant"
+
+hasil_lisa$LISA[
+  hasil_lisa$P_Value < 0.05
+] <- as.character(
+  hasil_lisa$Cluster[
+    hasil_lisa$P_Value < 0.05
+  ]
+)
+
+map_lisa <- merge(
+  data,
+  hasil_lisa,
+  by = "Provinsi"
+)
+
+ggplot() +
+  geom_polygon(
+    data = subset(world, region == "Indonesia"),
+    aes(
+      long,
+      lat,
+      group = group
+    ),
+    fill = "grey95",
+    color = "grey60"
+  ) +
+  geom_point(
+    data = map_lisa,
+    aes(
+      longitude,
+      latitude,
+      color = LISA
+    ),
+    size = 4
+  ) +
+  geom_text_repel(
+    data = map_lisa,
+    aes(
+      longitude,
+      latitude,
+      label = Provinsi
+    ),
+    size = 3
+  ) +
+  labs(
+    title = "LISA Cluster Map"
+  ) +
+  theme_minimal()
+```
+
+Berdasarkan peta LISA Cluster Map, terlihat adanya pengelompokan wilayah yang memiliki karakteristik UHH yang serupa.
+
+Secara keseluruhan, peta LISA memperlihatkan bahwa pengelompokan UHH di Indonesia tidak terjadi secara acak, melainkan membentuk klaster wilayah dengan karakteristik yang mirip. Temuan ini memperkuat hasil Global Moran's I yang menunjukkan adanya dependensi spasial pada variabel Umur Harapan Hidup Saat Lahir.
+
+
+# Bikin Model OLS
+```{r}
+model_ols <- lm(Y ~ X1 + X2, data = data)
+summary(model_ols)
+```
+Nilai p-value = 1.075e-07 < 0.05 menunjukkan bahwa variabel Pengeluaran per Kapita (X1) dan Jumlah Penduduk (X2) secara bersama-sama berpengaruh signifikan terhadap Umur Harapan Hidup Saat Lahir (Y).
+
+- X1: Setiap kenaikan pengeluaran per kapita sebesar Rp1.000 per orang per tahun diperkirakan akan meningkatkan UHH sebesar 0.000685 tahun, dengan asumsi variabel lain konstan. Hal ini menunjukkan bahwa semakin tinggi tingkat pengeluaran masyarakat, maka kualitas hidup dan harapan hidup masyarakat cenderung meningkat.
+- X2: Setiap kenaikan jumlah penduduk sebesar 1 ribu jiwa diperkirakan akan meningkatkan UHH sebesar 0.000072 tahun, dengan asumsi variabel lain konstan. 
+
+# Uji Asumsi
+## 1. Normalitas Residual
+
+H0 : Residual Berdistribusi Normal
+H1 : Residual Tidak Berdistribusi Normal
+
+```{r}
+shapiro.test(residuals(model_ols))
+```
+p-value = 0.5062 > 0.05, maka gagal tolak H0.
+Sehingga residual berdistribusi normal.
+
+
+## 2. Homoskedastisitas
+
+H0 : Tidak Terjadi Heteroskedastisitas
+H1 : Terjadi Heteroskedastisitas
+
+```{r}
+library(lmtest)
+bptest(model_ols)
+```
+p-value = 0.2605 > 0.05, maka gagal tolak H0.
+Sehingga tidak terdapat heteroskedastisitas.
+
+
+## 3. Autokorelasi
+
+H0: Tidak Terdapat Autokorelasi residual
+H1: Terdapat Autokorelasi residual
+
+```{r}
+dwtest(model_ols)
+```
+p-value = 0.02228 < 0.05, maka tolak H0.Sehingga terdapat autokorelasi.
+
+Hal ini menunjukkan bahwa residual antar wilayah masih saling berkorelasi sehingga model OLS kurang mampu menangkap pengaruh spasial yang terdapat pada data.
+
+Dengan ditemukannya autokorelasi pada residual model OLS, analisis dilanjutkan menggunakan pendekatan regresi spasial. Selanjutnya dilakukan uji Lagrange Multiplier (LM Test) untuk menentukan jenis model spasial yang paling sesuai digunakan dalam penelitian ini.
+
+
+# LM Test pada Regresi Spatial
+```{r}
+rs_test <- lm.RStests(
+  model_ols,
+  listw,
+  test = c("RSlag", "RSerr", "adjRSerr", "adjRSlag")
+)
+rs_test
+```
+
+
+```{r}
+rs_df <- data.frame(
+  Test = names(rs_test),
+  Statistic = sapply(rs_test, function(x) x$statistic),
+  P_Value = sapply(rs_test, function(x) x$p.value)
+)
+
+rs_df
+```
+
+## RSlag
+H0 : Tidak terdapat ketergantungan spasial pada var dependen
+H1: terdapat ketergantungan spasial
+
+p-value = 0.14339270 > 0.05, maka gagal tolak H0.
+Artinya pengaruh nilai UHH pada suatu provinsi terhadap UHH di provinsi tetangganya belum terdeteksi secara signifikan berdasarkan uji RSlag.
+
+## RSerr
+H0 : tidak ada ketergantungan spasial pada error
+H1 : terdapat ketergantungan spasial
+
+p-value = 0.95403501 > 0.05, maka gagal tolak H0.
+Artinya residual pada suatu wilayah tidak dipengaruhi oleh residual wilayah di sekitarnya.
+
+
+## adjRserr
+H0: tidak terdapat ketergantungan spasial error setelah kontrol kemungkinan spatial lag
+H1: terdapat ketergantungan spasial error setelah mengontrol kemungkinan spatial lag
+
+p-value = 0.12840721 > 0.05, maka gagal tolak H0.
+Hasil ini menunjukkan bahwa setelah memperhitungkan kemungkinan adanya efek spatial lag, tetap tidak ditemukan bukti yang cukup mengenai adanya ketergantungan spasial pada komponen error.
+
+
+## adjRSlag 
+H0: tidak ada ketergantungan spasial lag setelah mengontrol kemungkinan spatial error
+H1: terdapat ketergantungan spasial lag setelah mengontrol kemungkinan spatial error
+
+p-value = 0.03491145 < 0.05, maka tolak H0.
+Hasil ini menunjukkan bahwa setelah mengontrol kemungkinan adanya spatial error, terdapat ketergantungan spasial pada variabel respon. Dengan kata lain, nilai UHH suatu provinsi dipengaruhi oleh nilai UHH pada provinsi-provinsi di sekitarnya.
+
+
+# Model SAR
+```{r}
+library(spatialreg)
+sar <- lagsarlm(
+  Y ~ X1 + X2,
+  data = data,
+  listw = listw
+)
+
+summary(sar)
+```
+
+Nilai rho = 0.2686 (positive) menunjukkan adanya kecenderungan pengaruh UHH dari provinsi tetangga. Namun karena p-value = 0.1205 > 0.05, pengaruh spasial tersebut belum signifikan pada taraf 5%.
+
+
+# Model SEM
+```{r}
+sem <- errorsarlm(
+  Y ~ X1 + X2,
+  data = data,
+  listw = listw
+)
+
+summary(sem)
+```
+
+Parameter lambda = -0.026544, tidak signifikan sehingga tidak terdapat bukti adanya ketergantungan spasial pada komponen error model.
+
+
+# Model SARMA
+```{r}
+library(spatialreg)
+
+sarma <- sacsarlm(
+  Y ~ X1 + X2,
+  data = data,
+  listw = listw
+)
+
+summary(sarma)
+```
+- p-value (rho) = 0.043, maka parameter rho signifikan sehingga terdapat pengaruh spasial lag pada model SARMA.
+- p-value (lambda) = 0.22513, maka Parameter lambda tidak signifikan sehingga pengaruh spasial error tidak terdeteksi secara signifikan.
+
+# Comparison Model
+```{r}
+comparison <- data.frame(
+  Model = c("OLS", "SAR", "SEM", "SARMA"),
+  AIC = c(
+    AIC(model_ols),
+    AIC(sar),
+    AIC(sem),
+    AIC(sarma)
+  )
+)
+
+comparison <- comparison[order(comparison$AIC), ]
+comparison
+```
+Berdasarkan nilai AIC, model SAR memiliki nilai AIC paling kecil yaitu 152.593. Karena model dengan nilai AIC terkecil dianggap memiliki keseimbangan terbaik antara goodness of fit dan kompleksitas model, maka model SAR dipilih sebagai model terbaik untuk menjelaskan UHH di Indonesia tahun 2024.
+
+
