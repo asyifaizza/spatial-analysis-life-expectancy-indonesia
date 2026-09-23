@@ -406,6 +406,7 @@ The analysis was conducted using R.
 spatial-statistics-indonesia-life-expectancy/
 │
 ├── code.Rmd
+├── code.R
 ├── data_spatial.xlsx
 └── README.md
 ```
@@ -443,7 +444,7 @@ install.packages(c(
 The main analysis output is available in:
 
 ```text
-code.Rmd
+code.R
 ```
 
 The dataset used in the analysis is:
